@@ -1,0 +1,26 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # Change RewriteBase if app is in subdirectory, e.g. RewriteBase /Audit/
+    RewriteBase /
+
+    # Friendly URLs
+    RewriteRule ^collect/([a-z0-9-]+)/?$ collect.php?p=$1 [L,QSA]
+    RewriteRule ^project/([a-z0-9-]+)/map/?$ project.php?p=$1&view=map [L,QSA]
+    RewriteRule ^project/([a-z0-9-]+)/edit/?$ project.php?p=$1&edit=1 [L,QSA]
+    RewriteRule ^project/([a-z0-9-]+)/?$ project.php?p=$1 [L,QSA]
+
+    # Deny direct access to sensitive directories
+    RewriteRule ^data/ - [F,L]
+    RewriteRule ^uploads/ - [F,L]
+    RewriteRule ^cache/ - [F,L]
+    RewriteRule ^vendor/ - [F,L]
+    RewriteRule ^\.git - [F,L]
+    RewriteRule composer\.(json|lock) - [F,L]
+</IfModule>
+
+# Fallback if mod_rewrite not available
+<IfModule mod_authz_core.c>
+    <FilesMatch "^(composer\.(json|lock)|\.htaccess)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>

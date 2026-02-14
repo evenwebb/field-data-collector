@@ -1,0 +1,14 @@
+{
+  "name": "audit/dashboard",
+  "description": "Customisable auditing dashboard with photo export",
+  "require": {
+    "php": ">=7.4",
+    "lsolesen/pel": "^0.9",
+    "tecnickcom/tcpdf": "^6.6"
+  },
+  "autoload": {
+    "psr-4": {
+      "Audit\\": "lib/"
+    }
+  }
+}

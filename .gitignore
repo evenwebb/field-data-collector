@@ -1,0 +1,10 @@
+/data/
+/uploads/
+/cache/
+/vendor/
+composer.phar
+.env
+*.log
+*.bak
+*.tmp
+.DS_Store
