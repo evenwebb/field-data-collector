@@ -2,15 +2,85 @@ document.addEventListener('DOMContentLoaded', () => {
     const slug = window.PROJECT_SLUG;
     const optionGroups = window.OPTION_GROUPS || [];
     if (!slug) return;
+    const prefsKey = 'field_reports_project_prefs_' + slug;
+    const isMapPath = /\/map\/?$/.test(window.location.pathname);
+    const isEditPath = /\/edit\/?$/.test(window.location.pathname);
 
     const reportsList = document.getElementById('reportsList');
     const bulkActions = document.getElementById('bulkActions');
     const selectedCount = document.getElementById('selectedCount');
+    const exportSelectionStatus = document.getElementById('exportSelectionStatus');
+    const exportSelectedBadge = document.getElementById('exportSelectedBadge');
+    const exportScopePreview = document.getElementById('exportScopePreview');
     const filterOption = document.getElementById('filterOption');
     const filterValue = document.getElementById('filterValue');
+    const filterSort = document.getElementById('filterSort');
 
     let reports = [];
+    let reportsMeta = { report_count: 0, photo_count: 0 };
     let selectedIds = new Set();
+    let currentDetailReport = null;
+    let currentDetailIndex = -1;
+
+    function readPrefs() {
+        try {
+            return JSON.parse(localStorage.getItem(prefsKey) || '{}') || {};
+        } catch (_e) {
+            return {};
+        }
+    }
+
+    function writePrefs(next) {
+        const current = readPrefs();
+        localStorage.setItem(prefsKey, JSON.stringify({ ...current, ...next }));
+    }
+
+    function restoreFilterPrefs() {
+        const prefs = readPrefs();
+        if (filterOption && prefs.filterOption) {
+            filterOption.value = prefs.filterOption;
+            filterOption.dispatchEvent(new Event('change'));
+        }
+        if (filterValue && prefs.filterValue) {
+            filterValue.value = prefs.filterValue;
+        }
+        const from = document.getElementById('filterFrom');
+        const to = document.getElementById('filterTo');
+        const search = document.getElementById('filterSearch');
+        if (from && prefs.filterFrom) from.value = prefs.filterFrom;
+        if (to && prefs.filterTo) to.value = prefs.filterTo;
+        if (search && prefs.filterSearch) search.value = prefs.filterSearch;
+        if (filterSort && prefs.sort) filterSort.value = prefs.sort;
+    }
+
+    function persistFilterPrefs() {
+        writePrefs({
+            filterOption: filterOption?.value || '',
+            filterValue: filterValue?.value || '',
+            filterFrom: document.getElementById('filterFrom')?.value || '',
+            filterTo: document.getElementById('filterTo')?.value || '',
+            filterSearch: document.getElementById('filterSearch')?.value || '',
+            sort: filterSort?.value || 'newest',
+        });
+    }
+
+    document.querySelectorAll('.tabs a').forEach((a) => {
+        a.addEventListener('click', () => {
+            const prefView = /\/map\/?$/.test(a.getAttribute('href') || '') ? 'map' : 'list';
+            writePrefs({ view: prefView });
+        });
+    });
+    if (!isMapPath && !isEditPath) {
+        const prefView = readPrefs().view;
+        if (prefView === 'map') {
+            window.location.href = (window.BASE_URL || '') + '/project/' + encodeURIComponent(slug) + '/map';
+            return;
+        }
+    } else if (isMapPath) {
+        writePrefs({ view: 'map' });
+    } else {
+        writePrefs({ view: 'list' });
+    }
 
     let searchDebounce = null;
     document.getElementById('filterSearch')?.addEventListener('input', () => {
@@ -38,24 +108,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadReports() {
         const params = new URLSearchParams({ project: slug });
+        params.set('with_photos', '0');
         const fo = document.getElementById('filterOption')?.value;
         const fv = document.getElementById('filterValue')?.value;
         const from = document.getElementById('filterFrom')?.value;
         const to = document.getElementById('filterTo')?.value;
         const search = document.getElementById('filterSearch')?.value;
+        const sort = filterSort?.value || 'newest';
         if (fo && fv) { params.set('filter_option', fo); params.set('filter_value', fv); }
         if (from) params.set('from', from);
         if (to) params.set('to', to);
         if (search) params.set('search', search);
+        params.set('sort', sort);
 
         try {
             const apiBase = window.API_BASE || (window.BASE_URL ? window.BASE_URL + '/api' : 'api');
             const res = await fetch(apiBase + '/reports.php?' + params);
             const data = await res.json();
             reports = data.reports || [];
+            reportsMeta = data.meta || { report_count: reports.length, photo_count: 0 };
+            const availableIds = new Set(reports.map(r => parseInt(r.id, 10)));
+            selectedIds = new Set([...selectedIds].filter(id => availableIds.has(id)));
             if (reportsList) renderReports();
+            updateSelectionUi();
             const countEl = document.getElementById('reportCount');
             if (countEl) countEl.textContent = reports.length === 0 ? 'No reports' : reports.length + ' report' + (reports.length !== 1 ? 's' : '');
+            persistFilterPrefs();
         } catch (e) {
             if (reportsList) reportsList.innerHTML = '<p class="error">Failed to load reports</p>';
         }
@@ -71,10 +149,12 @@ document.addEventListener('DOMContentLoaded', () => {
         reportsList.innerHTML = reports.map(r => {
             const sel = Object.entries(r.selections || {}).map(([k,v]) => `${k}: ${v}`).join(', ');
             const photoUrl = r.primary_photo ? base + '/thumb.php?p=' + encodeURIComponent(slug) + '&photo=' + encodeURIComponent(r.primary_photo) : '';
+            const checked = selectedIds.has(parseInt(r.id, 10)) ? 'checked' : '';
+            const reviewed = r.reviewed_at ? '<span class="badge">Reviewed</span>' : '';
             return `
             <div class="card report-card" data-id="${r.id}">
                 <label class="report-check">
-                    <input type="checkbox" class="report-select" value="${r.id}">
+                    <input type="checkbox" class="report-select" value="${r.id}" ${checked}>
                 </label>
                 <div class="report-thumb">
                     ${photoUrl ? `<img src="${photoUrl}" alt="" loading="lazy" onerror="var s=document.createElement('span');s.className='no-thumb';s.textContent='No photo';this.replaceWith(s)">` : '<span class="no-thumb">No photo</span>'}
@@ -85,13 +165,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="report-note">${escapeHtml((r.note || '').slice(0, 100))}${(r.note || '').length > 100 ? '...' : ''}</div>
                     <div class="report-meta">
                         <span class="date">${formatDate(r.created_at)}</span>
+                        ${reviewed}
                     </div>
                 </div>
             </div>`;
         }).join('');
 
         reportsList.querySelectorAll('.report-select').forEach(cb => {
-            cb.addEventListener('change', updateBulkActions);
+            cb.addEventListener('change', syncSelectedIdsFromCheckboxes);
         });
         reportsList.querySelectorAll('.report-card').forEach(card => {
             card.addEventListener('click', (e) => {
@@ -99,14 +180,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 openReportDetail(parseInt(card.dataset.id));
             });
         });
+        updateSelectionUi();
     }
 
     let detailMap = null;
     let currentDetailReportId = null;
 
-    function openReportDetail(id) {
-        const report = reports.find(r => r.id === id);
+    async function fetchReportDetail(id) {
+        const apiBase = window.API_BASE || (window.BASE_URL ? window.BASE_URL + '/api' : 'api');
+        const params = new URLSearchParams({ p: slug, id: String(id), with_photos: '1' });
+        const res = await fetch(apiBase + '/reports.php?' + params.toString());
+        const data = await res.json();
+        if (!res.ok || data.error) {
+            throw new Error(data.error || 'Failed to load report');
+        }
+        return data.report || null;
+    }
+
+    async function openReportDetail(id) {
+        let report;
+        try {
+            report = await fetchReportDetail(id);
+        } catch (e) {
+            toast(e.message || 'Failed to load report', 'error');
+            return;
+        }
         if (!report) return;
+        currentDetailReport = report;
+        currentDetailIndex = reports.findIndex((r) => parseInt(r.id, 10) === parseInt(id, 10));
         const modal = document.getElementById('reportDetailModal');
         if (!modal) return;
 
@@ -147,6 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         currentDetailReportId = id;
+        updateDetailNav();
         document.getElementById('reportDetailView').hidden = false;
         document.getElementById('reportDetailEdit').hidden = true;
         modal.hidden = false;
@@ -155,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function switchToEditMode() {
-        const report = reports.find(r => r.id === currentDetailReportId);
+        const report = currentDetailReport;
         if (!report) return;
         const fieldsEl = document.getElementById('reportEditFields');
         fieldsEl.innerHTML = optionGroups.map((g, i) => {
@@ -180,16 +282,60 @@ document.addEventListener('DOMContentLoaded', () => {
         if (modal) modal.hidden = true;
         document.body.style.overflow = '';
         if (detailMap) { detailMap.remove(); detailMap = null; }
+        currentDetailReport = null;
+        currentDetailIndex = -1;
     }
 
-    function updateBulkActions() {
+    function updateDetailNav() {
+        const prevBtn = document.getElementById('reportPrevBtn');
+        const nextBtn = document.getElementById('reportNextBtn');
+        if (!prevBtn || !nextBtn) return;
+        prevBtn.disabled = currentDetailIndex <= 0;
+        nextBtn.disabled = currentDetailIndex < 0 || currentDetailIndex >= reports.length - 1;
+    }
+
+    function openAdjacentReport(offset) {
+        const nextIndex = currentDetailIndex + offset;
+        if (nextIndex < 0 || nextIndex >= reports.length) return;
+        const nextId = parseInt(reports[nextIndex].id, 10);
+        if (!nextId) return;
+        openReportDetail(nextId);
+    }
+
+    function syncSelectedIdsFromCheckboxes() {
+        if (!reportsList) return;
         selectedIds.clear();
         reportsList?.querySelectorAll('.report-select:checked').forEach(cb => {
             selectedIds.add(parseInt(cb.value));
         });
+        updateSelectionUi();
+    }
+
+    function updateSelectionUi() {
         if (bulkActions && selectedCount) {
             bulkActions.hidden = selectedIds.size === 0;
             selectedCount.textContent = selectedIds.size + ' selected';
+        }
+        if (exportSelectionStatus) {
+            if (selectedIds.size === 0) {
+                exportSelectionStatus.textContent = 'No reports selected (exports all)';
+            } else {
+                exportSelectionStatus.textContent = selectedIds.size + ' report' + (selectedIds.size !== 1 ? 's' : '') + ' selected for export';
+            }
+        }
+        if (exportSelectedBadge) {
+            exportSelectedBadge.textContent = selectedIds.size === 0
+                ? 'All reports'
+                : selectedIds.size + ' selected';
+        }
+        if (exportScopePreview) {
+            if (selectedIds.size > 0) {
+                const selectedReports = reports.filter((r) => selectedIds.has(parseInt(r.id, 10)));
+                const selectedPhotos = selectedReports.reduce((sum, r) => sum + (parseInt(r.photo_count, 10) || 0), 0);
+                exportScopePreview.textContent = 'Scope: ' + selectedReports.length + ' report(s), ' + selectedPhotos + ' photo(s)';
+            } else {
+                exportScopePreview.textContent = 'Scope: ' + (reportsMeta.report_count || 0) + ' report(s), ' + (reportsMeta.photo_count || 0) + ' photo(s)';
+            }
         }
     }
 
@@ -215,7 +361,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('reportDetailModal')?.querySelector('.modal-close')?.addEventListener('click', closeReportDetail);
     document.getElementById('reportDetailModal')?.querySelector('.modal-backdrop')?.addEventListener('click', closeReportDetail);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeReportDetail(); });
+    document.addEventListener('keydown', (e) => {
+        const modal = document.getElementById('reportDetailModal');
+        if (e.key === 'Escape') closeReportDetail();
+        if (!modal || modal.hidden) return;
+        if (e.key === 'ArrowLeft') openAdjacentReport(-1);
+        if (e.key === 'ArrowRight') openAdjacentReport(1);
+    });
+    document.getElementById('reportPrevBtn')?.addEventListener('click', () => openAdjacentReport(-1));
+    document.getElementById('reportNextBtn')?.addEventListener('click', () => openAdjacentReport(1));
 
     document.getElementById('reportDetailEditBtn')?.addEventListener('click', switchToEditMode);
     document.getElementById('reportEditCancel')?.addEventListener('click', switchToViewMode);
@@ -258,9 +412,73 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('filterFrom')?.value && (document.getElementById('filterFrom').value = '');
         document.getElementById('filterTo')?.value && (document.getElementById('filterTo').value = '');
         document.getElementById('filterSearch')?.value && (document.getElementById('filterSearch').value = '');
+        if (filterSort) filterSort.value = 'newest';
         loadReports();
     });
+    filterSort?.addEventListener('change', loadReports);
     document.getElementById('bulkDelete')?.addEventListener('click', bulkDelete);
+    document.getElementById('bulkExport')?.addEventListener('click', () => {
+        if (selectedIds.size === 0) return;
+        triggerExport('zip');
+    });
+    document.getElementById('bulkComment')?.addEventListener('click', async () => {
+        if (selectedIds.size === 0) return;
+        const comment = window.prompt('Comment for selected reports:');
+        if (comment === null) return;
+        try {
+            const res = await fetch((window.API_BASE || 'api') + '/reports.php?p=' + encodeURIComponent(slug), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'bulk_comment', ids: [...selectedIds], comment }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.error) {
+                toast(data.error || 'Bulk comment failed', 'error');
+                return;
+            }
+            toast('Comment added', 'success');
+            loadReports();
+        } catch (e) {
+            toast('Bulk comment failed', 'error');
+        }
+    });
+    document.getElementById('bulkReview')?.addEventListener('click', async () => {
+        if (selectedIds.size === 0) return;
+        try {
+            const res = await fetch((window.API_BASE || 'api') + '/reports.php?p=' + encodeURIComponent(slug), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'bulk_mark_reviewed', ids: [...selectedIds], reviewed: true }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.error) {
+                toast(data.error || 'Bulk review failed', 'error');
+                return;
+            }
+            toast('Marked reviewed', 'success');
+            loadReports();
+        } catch (e) {
+            toast('Bulk review failed', 'error');
+        }
+    });
+    document.getElementById('exportSelectAll')?.addEventListener('click', () => {
+        if (reports.length === 0) {
+            toast('No reports available to select', 'error');
+            return;
+        }
+        selectedIds = new Set(reports.map(r => parseInt(r.id, 10)));
+        reportsList?.querySelectorAll('.report-select').forEach(cb => {
+            cb.checked = true;
+        });
+        updateSelectionUi();
+    });
+    document.getElementById('exportDeselectAll')?.addEventListener('click', () => {
+        selectedIds.clear();
+        reportsList?.querySelectorAll('.report-select').forEach(cb => {
+            cb.checked = false;
+        });
+        updateSelectionUi();
+    });
 
     document.querySelectorAll('.collapsible-trigger').forEach(btn => {
         const content = document.getElementById(btn.getAttribute('aria-controls'));
@@ -306,6 +524,9 @@ document.addEventListener('DOMContentLoaded', () => {
         url.searchParams.set('format', format);
         const from = document.getElementById('exportFrom')?.value;
         const to = document.getElementById('exportTo')?.value;
+        if (selectedIds.size > 0) {
+            url.searchParams.set('ids', [...selectedIds].join(','));
+        }
         if (from) url.searchParams.set('from', from);
         if (to) url.searchParams.set('to', to);
         return url.toString();
@@ -349,7 +570,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const from = document.getElementById('exportFrom')?.value || '';
             const to = document.getElementById('exportTo')?.value || '';
             const apiBase = window.API_BASE || (window.BASE_URL ? window.BASE_URL + '/api' : 'api');
-            const res = await fetch(apiBase + '/export.php?p=' + encodeURIComponent(slug) + '&format=zip&share=1' + (from ? '&from=' + from : '') + (to ? '&to=' + to : ''));
+            const ids = selectedIds.size > 0 ? '&ids=' + encodeURIComponent([...selectedIds].join(',')) : '';
+            const res = await fetch(apiBase + '/export.php?p=' + encodeURIComponent(slug) + '&format=zip&share=1' + ids + (from ? '&from=' + from : '') + (to ? '&to=' + to : ''));
             const data = await res.json();
             if (data.url) {
                 navigator.clipboard?.writeText(data.url);
@@ -373,6 +595,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return d.toLocaleDateString();
     }
 
+    restoreFilterPrefs();
     loadReports();
     window.openReportDetail = openReportDetail;
 

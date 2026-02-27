@@ -4,10 +4,23 @@
  */
 
 function base_url(): string {
+    if (defined('APP_BASE_URL') && APP_BASE_URL) {
+        return rtrim(APP_BASE_URL, '/');
+    }
+
     $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $host = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost');
+    if (!is_string($host) || !preg_match('/^[a-z0-9.-]+(?::\d+)?$/i', $host)) {
+        $host = 'localhost';
+    }
     $script = $_SERVER['SCRIPT_NAME'] ?? '';
     $base = dirname($script);
+    // API requests run under /api/export.php; keep base URL at app root.
+    if ($base === '/api') {
+        $base = '';
+    } elseif (preg_match('#/api$#', $base)) {
+        $base = preg_replace('#/api$#', '', $base);
+    }
     if ($base === '/' || $base === '\\') {
         $base = '';
     }

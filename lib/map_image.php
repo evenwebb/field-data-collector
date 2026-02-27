@@ -61,9 +61,11 @@ function createMapOverlay(?float $lat, ?float $lng, int $width = 200, int $heigh
     }
     $overlay = imagecreatetruecolor($width, $height);
     if (!$overlay) {
+        imagedestroy($tile);
         return null;
     }
     imagecopyresampled($overlay, $tile, 0, 0, 0, 0, $width, $height, 256, 256);
+    imagedestroy($tile);
     return $overlay;
 }
 
@@ -92,10 +94,14 @@ function createMapOverlayLarge(?float $lat, ?float $lng, int $width = 600, int $
             $tile = @imagecreatefromstring($tileData);
             if (!$tile) continue;
             imagecopy($overlay, $tile, $dx * 256, $dy * 256, 0, 0, 256, 256);
+            imagedestroy($tile);
             $ok = true;
         }
     }
-    if (!$ok) return null;
+    if (!$ok) {
+        imagedestroy($overlay);
+        return null;
+    }
     $srcX = $ox - $tileX0 * 256;
     $srcY = $oy - $tileY0 * 256;
     if ($srcX < 0) { $srcX = 0; }
@@ -105,6 +111,7 @@ function createMapOverlayLarge(?float $lat, ?float $lng, int $width = 600, int $
     $resized = imagecreatetruecolor($width, $height);
     if (!$resized) return $overlay;
     imagecopy($resized, $overlay, 0, 0, $srcX, $srcY, $copyW, $copyH);
+    imagedestroy($overlay);
     $displayOriginX = $tileX0 * 256 + $srcX;
     $displayOriginY = $tileY0 * 256 + $srcY;
     $dotX = (int) ($px - $displayOriginX);
@@ -125,6 +132,7 @@ function compositeMapOntoImage(string $imagePath, ?float $lat, ?float $lng): boo
     }
     $overlay = createMapOverlay($lat, $lng, 200, 150);
     if (!$overlay) {
+        imagedestroy($img);
         return false;
     }
     $w = imagesx($img);
@@ -136,6 +144,8 @@ function compositeMapOntoImage(string $imagePath, ?float $lat, ?float $lng): boo
     imagecopy($img, $overlay, $ox, $oy, 0, 0, 200, 150);
     $border = imagecolorallocate($img, 255, 255, 255);
     imagerectangle($img, $ox - 1, $oy - 1, $ox + 200, $oy + 150, $border);
-    imagejpeg($img, $imagePath, 90);
-    return true;
+    $ok = imagejpeg($img, $imagePath, 90);
+    imagedestroy($overlay);
+    imagedestroy($img);
+    return (bool) $ok;
 }

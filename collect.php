@@ -45,16 +45,19 @@ function h(string $s): string {
 <body class="collect">
     <main>
         <h1><?= h($project['name']) ?></h1>
+        <div id="draftNotice" class="hint" hidden>Draft restored. Photos must be re-added for security reasons.</div>
+        <div id="queueStatus" class="hint" hidden></div>
 
         <form id="reportForm">
             <input type="hidden" name="project" value="<?= h($slug) ?>">
 
             <section class="section">
                 <label for="photos">Photos (required)</label>
-                <input type="file" id="photos" name="photos[]" accept="image/*" capture="environment" multiple required>
+                <input type="file" id="photos" name="photos[]" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" capture="environment" multiple>
                 <input type="hidden" name="lat" id="lat">
                 <input type="hidden" name="lng" id="lng">
                 <p class="hint">Take a photo or choose from gallery. Up to <?= MAX_PHOTOS_PER_REPORT ?> photos.</p>
+                <div id="photoWarnings" class="error" hidden></div>
                 <div id="photoPreview"></div>
             </section>
 
@@ -88,7 +91,23 @@ function h(string $s): string {
         <div id="error" class="error" hidden></div>
     </main>
 
-    <script>window.BASE_URL = <?= json_encode(rtrim(base_url(), '/')) ?>;</script>
+    <div class="collect-lightbox" id="collectLightbox" hidden>
+        <div class="collect-lightbox-backdrop" id="collectLightboxBackdrop"></div>
+        <div class="collect-lightbox-content" role="dialog" aria-modal="true" aria-label="Photo preview">
+            <button type="button" class="collect-lightbox-close" id="collectLightboxClose" aria-label="Close preview">&times;</button>
+            <img id="collectLightboxImage" alt="Selected photo preview">
+        </div>
+    </div>
+
+    <script>
+        window.BASE_URL = <?= json_encode(rtrim(base_url(), '/')) ?>;
+        window.PROJECT_SLUG = <?= json_encode($slug) ?>;
+        window.COLLECT_LIMITS = {
+            maxPhotos: <?= (int) MAX_PHOTOS_PER_REPORT ?>,
+            maxUploadSize: <?= (int) MAX_UPLOAD_SIZE ?>,
+            allowedMimeTypes: <?= json_encode(ALLOWED_MIME_TYPES) ?>
+        };
+    </script>
     <script src="<?= url_asset('assets/js/collect.js') ?>"></script>
 </body>
 </html>

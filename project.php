@@ -96,6 +96,12 @@ $collectUrl = url_collect($slug);
             </div>
             <div class="filter-row">
                 <input type="text" id="filterSearch" placeholder="Search notes...">
+                <select id="filterSort" aria-label="Sort reports">
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="reviewed">Reviewed first</option>
+                    <option value="unreviewed">Unreviewed first</option>
+                </select>
                 <button type="button" class="btn btn-primary" id="applyFilters">Apply</button>
                 <button type="button" class="btn btn-secondary" id="clearFilters" title="Clear all filters">Clear</button>
             </div>
@@ -104,6 +110,9 @@ $collectUrl = url_collect($slug);
 
         <section class="bulk-actions" id="bulkActions" hidden>
             <span id="selectedCount">0 selected</span>
+            <button type="button" class="btn btn-secondary" id="bulkExport">Export Selected</button>
+            <button type="button" class="btn btn-secondary" id="bulkComment">Add Comment</button>
+            <button type="button" class="btn btn-secondary" id="bulkReview">Mark Reviewed</button>
             <button type="button" class="btn btn-danger" id="bulkDelete">Delete</button>
         </section>
 
@@ -129,6 +138,14 @@ $collectUrl = url_collect($slug);
                 <input type="date" id="exportFrom" aria-label="From date">
                 <input type="date" id="exportTo" aria-label="To date">
             </div>
+            <div class="export-row">
+                <button type="button" class="btn btn-secondary" id="exportSelectAll">Select all reports</button>
+                <button type="button" class="btn btn-secondary" id="exportDeselectAll">Deselect all</button>
+                <span class="hint" id="exportSelectionStatus">No reports selected (exports all)</span>
+            </div>
+            <div class="export-row">
+                <span class="hint" id="exportScopePreview">Scope: all filtered reports</span>
+            </div>
             <div class="export-buttons">
                 <button type="button" class="btn btn-primary" id="exportZip">Export ZIP</button>
                 <button type="button" class="btn btn-primary" id="exportJpg">Export JPG</button>
@@ -136,6 +153,7 @@ $collectUrl = url_collect($slug);
                 <button type="button" class="btn btn-primary" id="exportPdf">Export PDF</button>
                 <?php endif; ?>
                 <button type="button" class="btn btn-secondary" id="shareExport">Get share link</button>
+                <span class="export-selected-badge" id="exportSelectedBadge">All reports</span>
             </div>
             </div>
         </section>
@@ -175,6 +193,10 @@ $collectUrl = url_collect($slug);
                 <button type="button" class="modal-close" aria-label="Close">&times;</button>
                 <div class="modal-body">
                     <div class="report-detail-view" id="reportDetailView">
+                        <div class="report-detail-nav">
+                            <button type="button" class="btn btn-secondary" id="reportPrevBtn">Previous</button>
+                            <button type="button" class="btn btn-secondary" id="reportNextBtn">Next</button>
+                        </div>
                         <div class="report-detail-photos" id="reportDetailPhotos"></div>
                         <div class="report-detail-info" id="reportDetailInfo"></div>
                         <div class="report-detail-map" id="reportDetailMap" hidden></div>

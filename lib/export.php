@@ -63,11 +63,21 @@ function getReportsForExport(int $projectId, string $slug, ?string $from, ?strin
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     $reports = $stmt->fetchAll();
+
+    $reportIds = array_column($reports, 'id');
+    $photosByReport = [];
+    if (!empty($reportIds)) {
+        $placeholders = implode(',', array_fill(0, count($reportIds), '?'));
+        $stmt2 = $db->prepare("SELECT * FROM report_photos WHERE report_id IN ($placeholders) ORDER BY report_id, sort_order");
+        $stmt2->execute($reportIds);
+        foreach ($stmt2->fetchAll() as $p) {
+            $photosByReport[$p['report_id']][] = $p;
+        }
+    }
+
     foreach ($reports as &$r) {
         $r['selections'] = json_decode($r['selections'], true);
-        $stmt2 = $db->prepare('SELECT * FROM report_photos WHERE report_id = ? ORDER BY sort_order');
-        $stmt2->execute([$r['id']]);
-        $r['photos'] = $stmt2->fetchAll();
+        $r['photos'] = $photosByReport[$r['id']] ?? [];
     }
     return $reports;
 }
@@ -93,8 +103,8 @@ function createZipExport(array $project, array $reports, ?string $from, ?string 
     }
 
     foreach ($reports as $report) {
-        $lat = $report['lat'] ? (float) $report['lat'] : null;
-        $lng = $report['lng'] ? (float) $report['lng'] : null;
+        $lat = ($report['lat'] !== null && $report['lat'] !== '') ? (float) $report['lat'] : null;
+        $lng = ($report['lng'] !== null && $report['lng'] !== '') ? (float) $report['lng'] : null;
         $roadName = getRoadName($lat, $lng);
         $address = getAddress($lat, $lng);
         $metadata = array_merge($report['selections'] ?? [], [
@@ -141,8 +151,8 @@ function createPdfExport(array $project, array $reports, ?string $from, ?string 
         $note = $report['note'] ?? '';
         $date = $report['created_at'] ?? '';
         $comment = $report['comment'] ?? '';
-        $lat = $report['lat'] ? (float) $report['lat'] : null;
-        $lng = $report['lng'] ? (float) $report['lng'] : null;
+        $lat = ($report['lat'] !== null && $report['lat'] !== '') ? (float) $report['lat'] : null;
+        $lng = ($report['lng'] !== null && $report['lng'] !== '') ? (float) $report['lng'] : null;
         $coords = ($lat !== null && $lng !== null) ? round($lat, 5) . ', ' . round($lng, 5) : '';
         $address = getAddress($lat, $lng);
         $location = $address ? $address . ($coords ? ' (' . $coords . ')' : '') : ($coords ?: 'Not recorded');
@@ -246,7 +256,7 @@ function createJpgExport(array $project, array $reports, ?string $from, ?string 
     $fontSizeInfo = $fontPath ? 16 : 0;
     $fontSizeHeader = $fontPath ? 16 : 0;
     $lineHeight = $fontPath ? 26 : 22;
-    $labelWidth = $fontPath ? 110 : 0;
+    $labelWidth = $fontPath ? 190 : 0;
 
     $colors = [
         'header_bg' => [13, 148, 136],
@@ -265,29 +275,38 @@ function createJpgExport(array $project, array $reports, ?string $from, ?string 
         $selText = implode(' | ', array_map(fn($k, $v) => "$k: $v", array_keys($selections), $selections));
         $note = $report['note'] ?? '';
         $date = $report['created_at'] ?? '';
-        $lat = $report['lat'] ? (float) $report['lat'] : null;
-        $lng = $report['lng'] ? (float) $report['lng'] : null;
+        $lat = ($report['lat'] !== null && $report['lat'] !== '') ? (float) $report['lat'] : null;
+        $lng = ($report['lng'] !== null && $report['lng'] !== '') ? (float) $report['lng'] : null;
         $roadName = getRoadName($lat, $lng);
         $address = getAddress($lat, $lng);
+        $comment = $report['comment'] ?? '';
+        $coords = ($lat !== null && $lng !== null)
+            ? number_format($lat, 6, '.', '') . ', ' . number_format($lng, 6, '.', '')
+            : '(not recorded)';
+        $roadValue = $address ? null : $roadName;
 
         $infoBlocks = [
-            ['Selections', $selText],
-            ['Road', $roadName],
-            ['Note', $note ?: '(none)'],
+            ['Project', $projectName],
             ['Date', $date],
+            ['Coordinates', $coords],
             ['Address', $address ?: '(not recorded)'],
+            ['Road', $roadValue],
+            ['Selections', $selText ?: '(none)'],
+            ['Note', $note ?: '(none)'],
+            ['Comment', $comment ?: null],
         ];
         $infoBlocks = array_filter($infoBlocks, fn($b) => $b[1] !== null && $b[1] !== '');
         $charsPerLine = $fontPath ? 58 : max(40, (int) (($pageW - $padding * 2) / 10));
         $infoRows = [];
         foreach ($infoBlocks as [$label, $value]) {
-            $valueLines = wrapExportText($value, $charsPerLine);
+            $valueLines = wrapExportText((string) $value, $charsPerLine);
             foreach ($valueLines as $i => $v) {
                 $infoRows[] = ['label' => $i === 0 ? $label : '', 'value' => $v];
             }
         }
 
         $photoParts = [];
+        $photoItems = [];
         $totalPhotoHeight = 0;
 
         foreach ($photos as $photo) {
@@ -298,13 +317,52 @@ function createJpgExport(array $project, array $reports, ?string $from, ?string 
             $src = applyExifOrientation($src, $srcPath);
             $sw = imagesx($src);
             $sh = imagesy($src);
-            $dw = $pageW;
-            $dh = (int) ($sh * $dw / $sw);
-            $part = imagecreatetruecolor($dw, $dh);
-            if (!$part) continue;
-            imagecopyresampled($part, $src, 0, 0, 0, 0, $dw, $dh, $sw, $sh);
-            $photoParts[] = $part;
-            $totalPhotoHeight += $dh;
+            if ($sw <= 0 || $sh <= 0) continue;
+            $photoItems[] = ['img' => $src, 'w' => $sw, 'h' => $sh, 'portrait' => $sh > $sw];
+        }
+
+        $allPortrait = count($photoItems) > 1 && !in_array(false, array_column($photoItems, 'portrait'), true);
+        if ($allPortrait) {
+            $count = count($photoItems);
+            $cellWidth = (int) floor($pageW / $count);
+            $scaledHeights = [];
+            foreach ($photoItems as $item) {
+                $scaledHeights[] = max(1, (int) round($item['h'] * ($cellWidth / $item['w'])));
+            }
+            $stripHeight = max($scaledHeights);
+            $strip = imagecreatetruecolor($pageW, $stripHeight);
+            if ($strip) {
+                $bg = imagecolorallocate($strip, 255, 255, 255);
+                imagefill($strip, 0, 0, $bg);
+                $x = 0;
+                foreach ($photoItems as $i => $item) {
+                    $cellW = ($i === $count - 1) ? ($pageW - $x) : $cellWidth;
+                    $dw = $cellW;
+                    $dh = max(1, (int) round($item['h'] * ($dw / $item['w'])));
+                    $dy = (int) floor(($stripHeight - $dh) / 2);
+                    imagecopyresampled($strip, $item['img'], $x, $dy, 0, 0, $dw, $dh, $item['w'], $item['h']);
+                    $x += $cellW;
+                }
+                $photoParts[] = $strip;
+                $totalPhotoHeight = $stripHeight;
+            }
+        }
+
+        if (empty($photoParts)) {
+            foreach ($photoItems as $item) {
+                $dw = $pageW;
+                $dh = (int) ($item['h'] * $dw / $item['w']);
+                $part = imagecreatetruecolor($dw, $dh);
+                if (!$part) continue;
+                imagecopyresampled($part, $item['img'], 0, 0, 0, 0, $dw, $dh, $item['w'], $item['h']);
+                $photoParts[] = $part;
+                $totalPhotoHeight += $dh;
+            }
+        }
+        foreach ($photoItems as $item) {
+            if (isset($item['img']) && $item['img'] instanceof \GdImage) {
+                imagedestroy($item['img']);
+            }
         }
 
         if (empty($photoParts)) {
@@ -336,7 +394,14 @@ function createJpgExport(array $project, array $reports, ?string $from, ?string 
 
         $canvas = imagecreatetruecolor($pageW, $pageH);
         if (!$canvas) {
-            foreach ($photoParts as $p) { /* gc */ }
+            foreach ($photoParts as $p) {
+                if ($p instanceof \GdImage) {
+                    imagedestroy($p);
+                }
+            }
+            if ($mapImg instanceof \GdImage) {
+                imagedestroy($mapImg);
+            }
             continue;
         }
         $white = imagecolorallocate($canvas, 255, 255, 255);
@@ -359,6 +424,7 @@ function createJpgExport(array $project, array $reports, ?string $from, ?string 
                 if ($scaled) {
                     imagecopyresampled($scaled, $p, 0, 0, 0, 0, $pw, $ph, imagesx($p), imagesy($p));
                     imagecopy($canvas, $scaled, $px, $y, 0, 0, $pw, $ph);
+                    imagedestroy($scaled);
                 }
             } else {
                 imagecopy($canvas, $p, $px, $y, 0, 0, $pw, $ph);
@@ -396,6 +462,15 @@ function createJpgExport(array $project, array $reports, ?string $from, ?string 
         if ($zip) {
             $zip->addFile($jpgPath, $slug . '-' . $report['id'] . '.jpg');
         }
+        if ($mapImg instanceof \GdImage) {
+            imagedestroy($mapImg);
+        }
+        foreach ($photoParts as $p) {
+            if ($p instanceof \GdImage) {
+                imagedestroy($p);
+            }
+        }
+        imagedestroy($canvas);
     }
 
     if ($zip) {

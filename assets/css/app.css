@@ -557,11 +557,92 @@ textarea:focus {
     margin-top: 0.5rem;
 }
 
+.photo-preview-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
 .photo-preview {
     width: 72px;
     height: 72px;
     object-fit: cover;
     border-radius: var(--radius-sm);
+}
+
+.photo-preview-btn {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: zoom-in;
+}
+
+.photo-preview-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+.photo-preview-controls {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.photo-preview-controls button {
+    border: 1px solid var(--border);
+    background: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    padding: 0.125rem 0.35rem;
+    color: var(--ink-muted);
+    cursor: pointer;
+}
+
+.collect-lightbox[hidden] {
+    display: none;
+}
+
+.collect-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+}
+
+.collect-lightbox-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.collect-lightbox-content {
+    position: absolute;
+    inset: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.collect-lightbox-content img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    background: #fff;
+}
+
+.collect-lightbox-close {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    width: 2rem;
+    height: 2rem;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #111827;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
 }
 
 .success {
@@ -794,6 +875,18 @@ body.collect #submitBtn {
     flex-wrap: wrap;
 }
 
+.export-selected-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-muted);
+    color: var(--ink-muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
 .bulk-actions {
     display: flex;
     align-items: center;
@@ -956,6 +1049,11 @@ body.collect #submitBtn {
 }
 .report-detail-modal .modal-body {
     padding: 1.5rem;
+}
+.report-detail-nav {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
 }
 .report-detail-photos {
     display: flex;

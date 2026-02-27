@@ -1,4 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
+    function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+    }
+
     const slug = window.PROJECT_SLUG;
     if (!slug) return;
 
@@ -6,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!mapEl) return;
 
     const apiBase = window.API_BASE || (window.BASE_URL ? window.BASE_URL + '/api' : 'api');
-    fetch(apiBase + '/reports.php?p=' + encodeURIComponent(slug))
+    fetch(apiBase + '/reports.php?p=' + encodeURIComponent(slug) + '&with_photos=0')
         .then(r => r.json())
         .then(data => {
             const reports = (data.reports || []).filter(r => r.lat != null && r.lng != null);
@@ -21,9 +27,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }).addTo(map);
 
             reports.forEach(r => {
-                const sel = Object.entries(r.selections || {}).map(([k,v]) => `${k}: ${v}`).join(', ');
+                const sel = Object.entries(r.selections || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
                 const addr = (r.address || r.road_name || '').slice(0, 80);
-                const popup = `<strong>${sel}</strong>${addr ? `<br><small>${addr}</small>` : ''}<br>${(r.note || '').slice(0, 100)}<br><button type="button" class="map-view-report" data-id="${r.id}">View report</button>`;
+                const note = (r.note || '').slice(0, 100);
+                const popup = `<strong>${escapeHtml(sel)}</strong>${addr ? `<br><small>${escapeHtml(addr)}</small>` : ''}<br>${escapeHtml(note)}<br><button type="button" class="map-view-report" data-id="${r.id}">View report</button>`;
                 const marker = L.marker([r.lat, r.lng]).addTo(map).bindPopup(popup);
                 marker.on('popupopen', function() {
                     const popupEl = marker.getPopup().getElement();
